@@ -2,3 +2,4 @@ output/
 data/
 *.html
 RR_model/dm/
+*.eps
