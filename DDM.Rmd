@@ -1,0 +1,251 @@
+---
+title: "DDM"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Loading libraries
+
+```{r}
+library(dplyr)
+library(ggplot2)
+library(purrr)
+library(tidyr)
+library(ggpubr)
+library(gridExtra)
+
+test.params <- function(df) {
+  inner_join(inner_join(inner_join(df %>%
+               map_dfr(mean) %>%
+               gather(parameter, estimate, everything()) %>% dplyr::rename(Mean=estimate),
+               df %>%
+               map_dfr(sd) %>%
+               gather(parameter, estimate, everything()) %>% dplyr::rename(SD=estimate),by='parameter'),
+             
+               df %>% map(~ .x > 0) %>% 
+                 map_dfr(mean) %>%
+                 gather(parameter, pvalue, everything()) %>%
+                 mutate(pvalue = if_else(round(pvalue)==1, 1-pvalue, pvalue),
+                        sig = if_else(pvalue < 0.001, "***",
+                                      if_else(pvalue < 0.01, "**",
+                                              if_else(pvalue < 0.05, "*", "n.s."))))),
+             inner_join(df %>%
+               map_dfr(function(x) return(quantile(x,0.975)[[1]])) %>%
+               gather(parameter, estimate, everything()) %>% dplyr::rename(CI_upper=estimate),
+               df %>% map_dfr(function(x) return(quantile(x,0.025)[[1]])) %>%
+               gather(parameter, estimate, everything()) %>% dplyr::rename(CI_lower=estimate),by='parameter'),by='parameter') 
+}
+
+
+```
+
+## Set paths
+
+```{r}
+traces <- read.csv('output/Study1/ae_only/vRPCaRPC_Study1_0_10000/vRPCaRPC_Study1_0_10000_traces.csv')
+traces<-traces %>% dplyr::select(a_C.catRewLevel..Sum..S.High.Reward.,
+                                 a_C.catPunLevel..Sum..S.High.Penalty.,
+                                 v_C.catRewLevel..Sum..S.High.Reward.,
+                                 v_C.catPunLevel..Sum..S.High.Penalty.) %>% 
+        mutate(v_C.catRewLevel..Sum..S.High.Reward.=v_C.catRewLevel..Sum..S.High.Reward.*2,
+               v_C.catPunLevel..Sum..S.High.Penalty.=v_C.catPunLevel..Sum..S.High.Penalty.*2)
+
+output <- test.params(traces)
+drift.rate<- output %>% filter(parameter %in% c('v_C.catRewLevel..Sum..S.High.Reward.',
+                                                'v_C.catPunLevel..Sum..S.High.Penalty.'))
+
+threshold<- output %>% filter(parameter %in% c('a_C.catRewLevel..Sum..S.High.Reward.',
+                                               'a_C.catPunLevel..Sum..S.High.Penalty.'))
+
+va <- rbind(drift.rate,threshold) %>% separate(parameter,c('parameter','factor'),'_')
+
+
+labels <- c('Reward','Penalty')
+
+va$factor<-factor(va$factor,levels=c('C.catRewLevel..Sum..S.High.Reward.',
+                                     'C.catPunLevel..Sum..S.High.Penalty.'))  
+
+
+va$parameter<-factor(va$parameter,labels=c('Threshold','Drift Rate'))
+
+p.estimate<-ggplot(va,aes(x=factor, y=Mean,fill=parameter)) + 
+            geom_bar(stat="identity", position=position_dodge(width = 0.5),width=0.5) +
+            geom_errorbar(width=.1, size=1, position=position_dodge(width = .5),aes(ymin=CI_lower,ymax=CI_upper)) + ylab('Estimate') +
+        xlab('')+ scale_y_continuous(expand = c(0,0),labels = function(x) sprintf("%.1f", x)) + coord_cartesian(ylim=c(-0.1,0.4)) +
+            theme(axis.line = element_line(colour = "black"),plot.margin=grid::unit(c(5,15,5,5), "mm"),
+              axis.title.y = element_text(margin = margin(t = 0, r = 20, b = 0, l = 0)),
+              text = element_text(size=20),legend.position = "none",
+              panel.grid.major = element_blank(),
+              panel.grid.minor = element_blank(),
+              panel.border = element_blank(),
+              panel.background = element_blank(),
+              plot.title = element_text(hjust = 0.5,size = 20, face = "bold")) + geom_hline(yintercept=0) +
+        scale_x_discrete(labels= labels) + 
+        scale_fill_manual(name="",values=c('#E6A024','#0673B3'))
+
+p.estimate
+
+```
+
+
+
+```{r}
+df<-read.csv('RR_model/prediction.csv')
+df.r<-df %>% group_by(Rlist,name) %>%
+  dplyr::summarise(Mean=mean(value)) %>% ungroup() %>%
+  group_by(name) %>%
+  mutate(effect = Mean - lag(Mean, default = Mean[1])) %>% ungroup() %>%
+  filter(effect!=0) %>% mutate(RP='Reward') %>% dplyr::select(-Rlist)
+
+df.p<-df %>% group_by(Plist,name) %>%
+  dplyr::summarise(Mean=mean(value)) %>% ungroup() %>%
+  group_by(name) %>%
+  mutate(effect = Mean - lag(Mean, default = Mean[1])) %>% ungroup() %>%
+  filter(effect!=0) %>% mutate(RP='Penalty') %>% dplyr::select(-Plist)
+
+effect<-rbind(df.r,df.p) %>% mutate(RP=factor(RP,levels = c('Reward','Penalty')))
+
+
+p.predict<-ggplot(effect,aes(x=RP,y=effect,fill=name)) + geom_bar(stat="identity",position=position_dodge(width = 0.5),width = 0.5) + xlab('') + coord_cartesian(ylim=c(-0.1,0.4)) + ylab('Prediction') + scale_y_continuous(expand = c(0,0),labels = function(x) sprintf("%.1f", x)) +
+  theme(axis.line = element_line(colour = "black"),plot.margin=grid::unit(c(5,15,5,5), "mm"),
+        axis.title.y = element_text(margin = margin(t = 0, r = 20, b = 0, l = 0)),
+        text = element_text(size=20),legend.position = "none",
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_blank(),
+        panel.background = element_blank(),
+        plot.title = element_text(hjust = 0.5,size = 20, face = "bold")) + geom_hline(yintercept=0) + 
+  scale_fill_manual(name="",values=c('#E6A024','#0673B3'))
+
+```
+
+```{r}
+lay <- rbind(c(1),
+             c(2))
+p<-arrangeGrob(grobs = list(p.predict,p.estimate))
+
+ggsave(file="Figures/Study1_ddm_fit_with_prediction3.eps", p,units = 'cm',height = 20,width = 12) #saves g
+```
+
+```{r}
+traces <- read.csv('output/Study1/ae_only/vRPCaRPCtRPC_Study1_0_10000/vRPCaRPCtRPC_Study1_0_10000_traces.csv')
+traces<-traces %>% dplyr::select(a_C.catRewLevel..Sum..S.High.Reward.,
+                                 a_C.catPunLevel..Sum..S.High.Penalty.,
+                                 v_C.catRewLevel..Sum..S.High.Reward.,
+                                 v_C.catPunLevel..Sum..S.High.Penalty.,
+                                 t_C.catRewLevel..Sum..S.High.Reward.,
+                                 t_C.catPunLevel..Sum..S.High.Penalty.) %>% 
+        mutate(v_C.catRewLevel..Sum..S.High.Reward.=v_C.catRewLevel..Sum..S.High.Reward.*2,
+               v_C.catPunLevel..Sum..S.High.Penalty.=v_C.catPunLevel..Sum..S.High.Penalty.*2,
+               t_C.catRewLevel..Sum..S.High.Reward.=t_C.catRewLevel..Sum..S.High.Reward.*2,
+               t_C.catPunLevel..Sum..S.High.Penalty.=t_C.catPunLevel..Sum..S.High.Penalty.*2)
+
+output <- test.params(traces)
+drift.rate<- output %>% filter(parameter %in% c('v_C.catRewLevel..Sum..S.High.Reward.',
+                                                'v_C.catPunLevel..Sum..S.High.Penalty.'))
+
+threshold<- output %>% filter(parameter %in% c('a_C.catRewLevel..Sum..S.High.Reward.',
+                                               'a_C.catPunLevel..Sum..S.High.Penalty.'))
+
+va <- rbind(drift.rate,threshold) %>% separate(parameter,c('parameter','factor'),'_')
+
+ndt<-output %>% filter(parameter %in% c('t_C.catRewLevel..Sum..S.High.Reward.',
+                                        't_C.catPunLevel..Sum..S.High.Penalty.')) %>%
+  separate(parameter,c('parameter','factor'),'_')
+
+labels <- c('Reward','Penalty')
+
+va$factor<-factor(va$factor,levels=c('C.catRewLevel..Sum..S.High.Reward.',
+                                     'C.catPunLevel..Sum..S.High.Penalty.'))  
+
+ndt$factor<-factor(ndt$factor,levels=c('C.catRewLevel..Sum..S.High.Reward.',
+                                       'C.catPunLevel..Sum..S.High.Penalty.'))  
+
+va$parameter<-factor(va$parameter,labels=c('Threshold','Drift Rate'))
+
+p.estimate<-ggplot(va,aes(x=factor, y=Mean,fill=parameter)) + 
+            geom_bar(stat="identity", position=position_dodge(width = 0.5),width=0.5) +
+            geom_errorbar(width=.1, size=1, position=position_dodge(width = .5),aes(ymin=CI_lower,ymax=CI_upper)) + ylab('Estimate') +
+        xlab('')+ scale_y_continuous(expand = c(0,0),labels = function(x) sprintf("%.1f", x)) + coord_cartesian(ylim=c(-0.15,0.4)) +
+            theme(axis.line = element_line(colour = "black"),plot.margin=grid::unit(c(5,15,5,5), "mm"),
+              axis.title.y = element_text(margin = margin(t = 0, r = 20, b = 0, l = 0)),
+              text = element_text(size=20),legend.position = "none",
+              panel.grid.major = element_blank(),
+              panel.grid.minor = element_blank(),
+              panel.border = element_blank(),
+              panel.background = element_blank(),
+              plot.title = element_text(hjust = 0.5,size = 20, face = "bold")) + geom_hline(yintercept=0) +
+        scale_x_discrete(labels= labels) + 
+        scale_fill_manual(name="",values=c('#E6A024','#0673B3'))
+
+p.estimate
+
+ggsave('Figures/Study1_withndt_va.eps',plot = p.estimate,units = 'cm',height = 10,width = 15)
+
+p3 <- ggplot(ndt, aes(x=factor, y=Mean)) + 
+      geom_bar(stat="identity", position=position_dodge(),width = 0.5) +
+      geom_errorbar(aes(ymin=CI_lower, ymax=CI_upper), width=.1, size=1,position=position_dodge(.4)) + ylab('Estimate') + xlab('') +
+      scale_y_continuous(expand = c(0,0),breaks = c(-0.05,0,0.05),labels = function(x) sprintf("%.2f", x)) + coord_cartesian(ylim=c(-0.05,0.05)) + ggtitle('Non-Decision Time') +
+      theme(axis.line = element_line(colour = "black"),plot.margin=grid::unit(c(5,15,5,5), "mm"),
+        axis.title.y = element_text(margin = margin(t = 0, r = 20, b = 0, l = 0)),
+        text = element_text(size=20),legend.position = "none",
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_blank(),
+        panel.background = element_blank(),
+        plot.title = element_text(hjust = 0.5,size = 20, face = "bold")) + geom_hline(yintercept=0) + 
+  scale_x_discrete(labels= labels)
+p3
+
+ggsave('Figures/Study1_withndt_ndt.eps',plot = p3,units = 'cm',height = 10,width = 10)
+
+```
+
+
+```{r}
+traces <- read.csv('output/Study2/ae_only/vRPCaRPC_Study2_0_10000/vRPCaRPC_Study2_0_10000_traces.csv')
+traces<-traces %>% dplyr::select(a_C.catRewLevel..Poly..Linear,
+                                 a_C.catPunLevel..Poly..Linear,
+                                 v_C.catRewLevel..Poly..Linear,
+                                 v_C.catPunLevel..Poly..Linear) %>% 
+        mutate(a_C.catRewLevel..Poly..Linear=a_C.catRewLevel..Poly..Linear/sqrt(2),
+               a_C.catPunLevel..Poly..Linear=a_C.catPunLevel..Poly..Linear/sqrt(2),
+               v_C.catRewLevel..Poly..Linear=v_C.catRewLevel..Poly..Linear*sqrt(2),
+               v_C.catPunLevel..Poly..Linear=v_C.catPunLevel..Poly..Linear*sqrt(2))
+
+output <- test.params(traces)
+drift.rate<- output %>% filter(parameter %in% c('v_C.catRewLevel..Poly..Linear',
+                                                'v_C.catPunLevel..Poly..Linear'))
+
+threshold<- output %>% filter(parameter %in% c('a_C.catRewLevel..Poly..Linear',
+                                               'a_C.catPunLevel..Poly..Linear'))
+
+va <- rbind(drift.rate,threshold) %>% separate(parameter,c('parameter','factor'),'_')
+
+labels <- c('Reward','Penalty')
+
+va$factor<-factor(va$factor,levels=c('C.catRewLevel..Poly..Linear',
+                                     'C.catPunLevel..Poly..Linear'))  
+
+va$parameter<-factor(va$parameter,labels=c('Threshold','Drift Rate'))
+
+p.estimate<-ggplot(va,aes(x=factor, y=Mean,fill=parameter)) + 
+            geom_bar(stat="identity", position=position_dodge(width = 0.5),width=0.5) +
+            geom_errorbar(width=.1, size=1, position=position_dodge(width = .5),aes(ymin=CI_lower,ymax=CI_upper)) + ylab('Estimate') +
+        xlab('')+ scale_y_continuous(expand = c(0,0),labels = function(x) sprintf("%.1f", x)) + coord_cartesian(ylim=c(-0.1,0.4)) +
+            theme(axis.line = element_line(colour = "black"),plot.margin=grid::unit(c(5,15,5,5), "mm"),
+              axis.title.y = element_text(margin = margin(t = 0, r = 20, b = 0, l = 0)),
+              text = element_text(size=20),legend.position = "none",
+              panel.grid.major = element_blank(),
+              panel.grid.minor = element_blank(),
+              panel.border = element_blank(),
+              panel.background = element_blank(),
+              plot.title = element_text(hjust = 0.5,size = 20, face = "bold")) + geom_hline(yintercept=0) +
+        scale_x_discrete(labels= labels) + 
+        scale_fill_manual(name="",values=c('#E6A024','#0673B3'))
+
+ggsave('Figures/Study2_va.eps',plot = p.estimate,units = 'cm',height = 10,width = 10)
+```

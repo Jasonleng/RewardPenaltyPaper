@@ -1,0 +1,576 @@
+---
+title: "Reward/Penalty behavioral data analysis"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 3
+---
+
+```{r include=FALSE}
+library(dplyr)
+library(tidyr)
+library(forcats)
+library(lme4)
+library(sjPlot)
+library(ggplot2)
+library(ggtext)
+library(psych)
+library(simr)
+library(gridExtra)
+library(Rmisc)
+library(MASS)
+
+
+gg.rr <-theme(axis.line = element_line(colour = "black"),text = element_text(size=20),
+        axis.title.y = element_markdown(margin = margin(t = 0, r = 10, b = 0, l = 0)),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    panel.border = element_blank(),
+    panel.background = element_blank(),
+    plot.title = element_markdown(hjust = 0.5,size=20))
+
+gg.side <-theme(axis.line = element_line(colour = "black"),text = element_text(size=15),
+        axis.title.y = element_markdown(margin = margin(t = 0, r = 10, b = 0, l = 0)),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    panel.border = element_blank(),
+    panel.background = element_blank(),
+    plot.title = element_markdown(hjust = 0.5,size=20))
+
+```
+
+# Study 1
+
+## Load and process data
+
+
+```{r}
+
+# Criteria: less than 10 errors per quiz
+
+df.question<-read.csv(paste0('data/study1/quiz_question_data.csv'),header = T) %>%
+  dplyr::select(mTurkID,age,gender,incorrectLQ1,incorrectLQ2) %>% filter(!is.na(age),incorrectLQ1<10,incorrectLQ2<10) %>%
+  mutate(scaledAge=scale(age),
+         gender=relevel(factor(gender),ref = 'Female'),
+         mTurkID=as.character(mTurkID))
+
+# Criteria: RT greater than 250 ms, main task only
+
+df.trial<-read.csv(paste0('data/study1/behavioral_data.csv')) %>%
+  filter(Phase=='MainBlock',!is.na(RewLvl),!is.na(Session),!is.na(RT),RT>250) %>%
+  dplyr::select(-c(MoneyEarned,hitID,isPractice,Vers,Phase,SubID)) %>%
+  dplyr::mutate(Word=tolower(as.character(factor(Word))),
+         Response=as.character(factor(Response)),
+         Color=as.character(factor(Color)),
+         catRewLevel=recode_factor(RewLvl,`1`='Low Reward',`2`='High Reward'),
+         catPunLevel=recode_factor(Session,`1`='High Penalty',`2`='Low Penalty'),
+         catCong=recode_factor(Congruency,`0`='incongruent',`1`='congruent'),
+         scaledTrialNum=scale(TrialNum),
+         row_n=1:n(),
+         isRandom=(Acc==0)&(Word!=Response)) %>%
+  dplyr::select(-c(RewLvl)) 
+```
+
+
+
+```{r include=FALSE}
+df.summary <- inner_join(df.trial,df.question,by='mTurkID') %>% 
+  group_by(mTurkID) %>% 
+  dplyr::summarise(mean_Acc_subj=mean(Acc,na.rm=T),
+                   mean_RT_subj=mean(RT,na.rm=T)) %>% ungroup() %>%
+  filter(mean_Acc_subj >= 0.6,mean_RT_subj <= 2000)
+```
+
+
+
+
+```{r}
+
+# Look at the order of sessions
+
+df.order <- df.trial %>% group_by(Session,mTurkID) %>%
+  dplyr::summarise(first_trial=min(row_n,na.rm = T)) %>% ungroup() %>%
+  mutate(Session=paste0('S',Session)) %>%
+  spread(Session,first_trial) %>% 
+  mutate(S1=if_else(is.na(S1),1000000,S1+0.1),
+         S2=if_else(is.na(S2),1000000,S2+0.1),
+         order=if_else(S1>S2,'LPHP','HPLP')) %>%
+  dplyr::select(mTurkID,order)
+
+df.trial <- inner_join(df.trial,df.order,by='mTurkID') %>%
+  mutate(SessionNum=if_else((order=='LPHP'&Session==2)|(order=='HPLP'&Session==1),1,2),
+         globalIntervalNum=IntervalNum+(BlockNum + (SessionNum - 1) *2 -1)*20)
+
+# Interval-level summary
+
+# At interval level, data in the intervals with low accuracy (<0.75), too high or too low ratio of congruent trials is excluded.
+
+df.interval<-df.trial %>% group_by(mTurkID,Session,IntervalNum,BlockNum,catRewLevel,catPunLevel,IntervalDur,globalIntervalNum) %>%
+  dplyr::summarize(meanCongruency=mean(Congruency),
+                   norm_sum_Acc=sum(Acc,na.rm = T)/mean(IntervalDur),
+                   mean_Acc=mean(Acc,na.rm=T),
+                   mean_AccRT=mean(AccRT,na.rm=T),
+                   mean_RT=mean(RT),
+                   nTrial=n()) %>% ungroup() %>%
+  filter(abs(meanCongruency-0.5)<=0.2,
+         mean_Acc>=0.6) %>%
+  mutate(scaledMeanCong=scale(meanCongruency),
+         mTurkID=as.character(mTurkID),
+         scaledDur=(IntervalDur-10)/2,
+         scaledIntervalNum=(IntervalNum + (BlockNum-1)*20-20.5)/19.5,
+         scaledGlobalIntervalNum=(globalIntervalNum-39.5)/39.5)
+
+
+df.trial <- inner_join(df.trial,df.interval %>% 
+                         dplyr::select(mTurkID,globalIntervalNum,scaledGlobalIntervalNum,scaledMeanCong,nTrial),
+                       by=c('mTurkID','globalIntervalNum')) %>%
+  filter(RT<=3000)
+
+df.interval.combined<-inner_join(df.interval,df.question,by='mTurkID')
+```
+
+
+```{r}
+df.trial.hddm.re <- df.trial %>% filter(mTurkID %in% df.question$mTurkID,isRandom==FALSE) %>%
+  mutate(rt=RT/1000,
+         response=Acc,
+         subj_idx=as.numeric(factor(mTurkID))) %>% dplyr::select(subj_idx,rt,response,catRewLevel,catPunLevel,catCong)
+
+write.csv(df.trial.hddm.re,'data/Study1/hddm_data_ae_only.csv',col.names = T,row.names = F)
+```
+
+
+## Interval-level model
+
+```{r, message=FALSE, warning=FALSE}
+contrasts(df.interval.combined$catPunLevel)<-contr.sum
+contrasts(df.interval.combined$catRewLevel)<-contr.sum
+contrasts(df.interval.combined$gender)<-contr.sum
+```
+
+```{r message=TRUE, warning=TRUE}
+model.rr<-lmerTest::lmer(norm_sum_Acc ~ scaledAge + gender + catPunLevel * catRewLevel + scaledGlobalIntervalNum + scaledMeanCong + 
+                           (1 + catPunLevel * catRewLevel + scaledGlobalIntervalNum + scaledMeanCong|mTurkID),data=df.interval.combined,REML = T)
+summary(model.rr)
+sv1_max <- svd(getME(model.rr,"Tlist")[[1]])
+sv1_max$d
+round(sv1_max$d^2/sum(sv1_max$d^2)*100, 1)
+
+tab_model(model.rr,show.icc = F,show.re.var = F,show.se=T,digits = 3,show.ci=F,
+          pred.labels = c("Intercept","Age","Female - Male",
+                          "High Penalty - Low Penalty",
+                          "High Reward - Low Reward",
+                          "Interval Number",
+                          "Average Congruence",
+                          "Reward X Penalty"),
+          dv.labels = c("Correct Responses Per Second"),
+          string.se = "S.E.",
+          string.p = "P-Value"
+          )
+
+anova(model.rr)
+```
+
+
+## Trial-level model
+
+```{r}
+df.trial.combined<-inner_join(df.trial,df.question,by='mTurkID') %>%
+  mutate(catRewLevel=relevel(catRewLevel,ref='High Reward'),
+         catPunLevel=relevel(catPunLevel,ref='High Penalty'),
+         catCong=relevel(catCong,ref='congruent'))
+
+contrasts(df.trial.combined$catPunLevel)<-contr.sum
+contrasts(df.trial.combined$catRewLevel)<-contr.sum
+contrasts(df.trial.combined$gender)<-contr.sum
+contrasts(df.trial.combined$catCong)<-contr.sum
+```
+
+
+
+```{r message=TRUE, warning=TRUE}
+model.accrt.t<-lmerTest::lmer(log10(AccRT/1000)~scaledAge + gender + catPunLevel * catRewLevel * catCong + scaledTrialNum + 
+                                scaledGlobalIntervalNum + (1 + catPunLevel * catRewLevel * catCong + scaledTrialNum + 
+                                scaledGlobalIntervalNum|mTurkID),data=df.trial.combined)
+summary(model.accrt.t)
+sv1_max <- svd(getME(model.accrt.t,"Tlist")[[1]])
+sv1_max$d
+round(sv1_max$d^2/sum(sv1_max$d^2)*100, 1)
+anova(model.accrt.t)
+```
+
+
+```{r}
+model.acc.t<-glmer(Acc~scaledAge + gender + catPunLevel * catRewLevel * catCong + scaledTrialNum + scaledGlobalIntervalNum + 
+                     (1 + catPunLevel * catRewLevel * catCong + scaledTrialNum + scaledGlobalIntervalNum|mTurkID),
+                   family=binomial,data=df.trial.combined)
+summary(model.acc.t)
+tab_model(model.acc.t,show.icc = F,show.re.var = F)
+sv1_max <- svd(getME(model.acc.t,"Tlist")[[1]])
+sv1_max$d
+round(sv1_max$d^2/sum(sv1_max$d^2)*100, 1)
+```
+
+```{r}
+tab_model(model.accrt.t,model.acc.t,show.icc = F,
+          show.re.var = F,digits=3,
+          show.se = T,
+          show.ci = F,
+          pred.labels = c("Intercept","Age","Female - Male",
+                          "High Penalty - Low Penalty",
+                          "High Reward - Low Reward",
+                          "Trial Congruence (Cong-Incong)",
+                          "Trial Number",
+                          "Interval Number",
+                          "Reward X Penalty",
+                          "Penalty X Congruence",
+                          "Reward X Congruence",
+                          "Reward X Penalty X Congruence"),
+          dv.labels = c("Log-Transformed RT","Accuracy"),
+          string.se = "S.E.",
+          string.p = "P-Value")
+```
+
+
+```{r}
+car::Anova(model.acc.t)
+```
+
+## Plot figures
+
+```{r}
+df.plot <- df.interval.combined %>% mutate(catRewLevel=relevel(catRewLevel,ref='Low Reward'),
+                       catPunLevel=relevel(catPunLevel,ref='Low Penalty'),
+                       mean_AccRT=mean_AccRT/1000)
+
+df.trial.plot <- df.trial.combined %>% mutate(catRewLevel=relevel(catRewLevel,ref='Low Reward'),
+                       catPunLevel=relevel(catPunLevel,ref='Low Penalty'),
+                       AccRT=AccRT/1000)
+```
+
+
+```{r}
+dfwc.p.acc<-summarySEwithin(df.trial.plot, measurevar="Acc", withinvars=c("catPunLevel"),idvar="mTurkID",na.rm=TRUE, conf.interval=.95)
+
+pp.acc <- ggplot() + 
+  geom_errorbar(data=dfwc.p.acc,position = position_dodge(.6),width=0,size=1,aes(x=catPunLevel,ymin=Acc - ci, ymax=Acc + ci)) +
+  geom_point(data=dfwc.p.acc,aes(x=catPunLevel,y=Acc,color=catPunLevel),stat='identity',size=3) + gg.side +
+  scale_color_manual(name = "",values=c("#D96000","#8C3E00"),guide=FALSE) + ylab('<b>Accuracy</b><br>') + xlab("") +
+  coord_cartesian(ylim = c(0.94,0.98)) + 
+  scale_y_continuous(breaks = c(0.94,0.96,0.98)) + scale_x_discrete(labels=c("High Penalty" = "High", "Low Penalty" = "Low"))
+
+dfwc.p.accrt<-summarySEwithin(df.trial.plot, measurevar="AccRT", withinvars=c("catPunLevel"),idvar="mTurkID",na.rm=TRUE, conf.interval=.95)
+
+pp.accrt <- ggplot() + 
+  geom_errorbar(data=dfwc.p.accrt,position = position_dodge(.6),width=0,size=1,aes(x=catPunLevel,ymin=AccRT-ci, ymax=AccRT +ci)) +
+  geom_point(data=dfwc.p.accrt,aes(x=catPunLevel,y=AccRT,color=catPunLevel),stat='identity',size=3) + gg.side +
+  scale_color_manual(name = "",values=c("#D96000","#8C3E00"),guide=FALSE) + 
+  ylab("<b>Reaction Time(s)</b><br>(Correct Responses Only)") + xlab("") +coord_cartesian(ylim = c(0.75,0.85)) + 
+  scale_y_continuous(breaks = c(0.75,0.8,0.85)) + scale_x_discrete(labels=c("High Penalty" = "High", "Low Penalty" = "Low"))
+
+dfwc.p.rr<-summarySEwithin(df.plot, measurevar="norm_sum_Acc", withinvars=c("catPunLevel"),idvar="mTurkID",na.rm=TRUE, conf.interval=.95)
+
+pp.rr <- ggplot() + 
+  geom_errorbar(data=dfwc.p.rr,position = position_dodge(.6),width=0,size=1,aes(x=catPunLevel,ymin=norm_sum_Acc-ci, ymax=norm_sum_Acc +ci)) + 
+  geom_point(data=dfwc.p.rr,aes(x=catPunLevel,y=norm_sum_Acc,color=catPunLevel),stat='identity',size=3) + gg.rr + 
+  scale_color_manual(name = "",values=c("#D96000","#8C3E00"),guide=FALSE) + ylab("<b>Correct Responses Per Second</b>") + xlab("") +
+  coord_cartesian(ylim = c(1.05,1.2)) + 
+  scale_y_continuous(breaks = c(1.1,1.2)) + scale_x_discrete(labels=c("High Penalty" = "High", "Low Penalty" = "Low"))
+
+dfwc.r.acc<-summarySEwithin(df.trial.plot, measurevar="Acc", withinvars=c("catRewLevel"),idvar="mTurkID",na.rm=TRUE, conf.interval=.95)
+
+pr.acc <- ggplot() +
+  geom_errorbar(data=dfwc.r.acc,position = position_dodge(.6),width=0,size=1,aes(x=catRewLevel,ymin=Acc-ci, ymax=Acc +ci)) + 
+  geom_point(data=dfwc.r.acc,aes(x=catRewLevel,y=Acc,color=catRewLevel),stat='identity',size=3) + gg.side +
+  scale_color_manual(name = "",values=c("#00D9D9","#005E5E"),guide=FALSE) + ylab('<b>Accuracy</b><br>') + xlab("") +
+  coord_cartesian(ylim = c(0.94,0.98)) + 
+  scale_y_continuous(breaks = c(0.94,0.96,0.98)) + scale_x_discrete(labels=c("High Reward" = "High", "Low Reward" = "Low"))
+ 
+dfwc.r.accrt<-summarySEwithin(df.trial.plot, measurevar="AccRT", withinvars=c("catRewLevel"),idvar="mTurkID",na.rm=TRUE, conf.interval=.95)
+
+pr.accrt <- ggplot() + 
+  geom_errorbar(data=dfwc.r.accrt,position = position_dodge(.6),width=0,size=1,aes(x=catRewLevel,ymin=AccRT-ci, ymax=AccRT +ci)) +
+  geom_point(data=dfwc.r.accrt,aes(x=catRewLevel,y=AccRT,color=catRewLevel),stat='identity',size=3) + gg.side +
+  scale_color_manual(name = "",values=c("#00D9D9","#005E5E"),guide=FALSE) + 
+  ylab("<b>Reaction Time(s)</b><br>(Correct Responses Only)") + xlab("") +coord_cartesian(ylim = c(0.75,0.85)) + 
+  scale_y_continuous(breaks = c(0.75,0.8,0.85)) + scale_x_discrete(labels=c("High Reward" = "High", "Low Reward" = "Low"))
+ 
+dfwc.r.rr<-summarySEwithin(df.plot, measurevar="norm_sum_Acc", withinvars=c("catRewLevel"),idvar="mTurkID",na.rm=TRUE, conf.interval=.95)
+
+pr.rr <- ggplot() +
+  geom_errorbar(data=dfwc.r.rr,position = position_dodge(.6),width=0,size=1,aes(x=catRewLevel,ymin=norm_sum_Acc-ci, ymax=norm_sum_Acc +ci)) + 
+  geom_point(data=dfwc.r.rr,aes(x=catRewLevel,y=norm_sum_Acc,color=catRewLevel),stat='identity',size=3) + 
+  gg.rr + 
+  scale_color_manual(name = "",values=c("#00D9D9","#005E5E"),guide=FALSE) + ylab("<b>Correct Responses Per Second</b>") + xlab("") +
+  coord_cartesian(ylim = c(1.05,1.2)) + 
+  scale_y_continuous(breaks = c(1.1,1.2)) + scale_x_discrete(labels=c("High Reward" = "High", "Low Reward" = "Low"))
+```
+
+
+```{r}
+lay <- rbind(c(1,2,NA,4,5),
+             c(1,3,NA,4,6))
+p<-arrangeGrob(grobs = list(pr.rr,pr.accrt,pr.acc,pp.rr,pp.accrt,pp.acc), layout_matrix = lay,widths=unit(c(8,5,1,8,5), c("cm", "cm")),heights=unit(c(6,6),c('cm','cm')))
+
+ggsave(file="Figures/Study1_Behavior.eps", p,units = 'cm',height = 20,width = 40) #saves g
+```
+
+# Study 2
+
+## Load and process data 
+
+```{r include=FALSE}
+df.trial<-read.csv('data/study2/behavioral_data.csv') 
+
+df.question<-read.csv('data/study2/quiz_question_data.csv',
+                     col.names = c('uniqueid','attribute','value')) %>% 
+  spread(attribute,value) %>%
+  dplyr::select(uniqueid,age,gender,incorrectC1,incorrectC2) %>%
+  mutate(age=as.numeric(as.character(droplevels(age))),
+         scaledAge=scale(age),
+         incorrectC1=as.numeric(as.character(incorrectC1)),
+         incorrectC2=as.numeric(as.character(incorrectC2))) %>%
+  filter(!is.na(age),incorrectC1<=10,incorrectC2<=10,gender!='') %>%
+  mutate(gender=droplevels(as.factor(as.character(gender)))) 
+```
+
+
+
+```{r include=FALSE}
+df.summary <- df.trial %>% 
+  group_by(uniqueid) %>% 
+  dplyr::summarise(mean_Acc_subj=mean(hit,na.rm=T),
+                   mean_RT_subj=mean(rt,na.rm=T)) %>% ungroup() %>%
+  filter(mean_Acc_subj >= 0.6,mean_RT_subj <= 2000)
+```
+
+
+```{r include=FALSE}
+df.trial <- df.trial %>%
+  filter(rt>250) %>%
+  mutate(AccRT=ifelse(hit==1,rt,NaN)/1000) %>% 
+  filter(!is.na(rt),uniqueid %in% df.question$uniqueid,uniqueid %in% df.summary$uniqueid) %>% 
+  dplyr::select(-c('initrt','phase','moneyEarned')) %>% 
+  mutate(type=droplevels(type)) %>%
+  mutate(globalIntervalNum=intervalNum + 12 * (blockNum - 1)) %>%
+  mutate(congruence=as.numeric(type=='congruent')) %>% 
+  mutate(log10_AccRT=log10(AccRT),catRewLevel=factor(fct_collapse(intervalType,
+                                               'Low Reward'=c('LRLP','LRMP','LRHP'),
+                                               'Medium Reward'=c('MRLP','MRMP','MRHP'),
+                                               'High Reward'=c('HRLP','HRMP','HRHP')),
+                                               levels = c('Low Reward','Medium Reward','High Reward')),
+         catPunLevel=factor(fct_collapse(intervalType,
+                                            'Low Penalty'=c('LRLP','MRLP','HRLP'),
+                                               'Medium Penalty'=c('LRMP','MRMP','HRMP'),
+                                               'High Penalty'=c('LRHP','MRHP','HRHP')),
+                            levels = c('Low Penalty','Medium Penalty','High Penalty')),
+         catRewPunOrder=factor(fct_collapse(intervalType,
+                                            'Diff'=c('MRLP','HRLP','HRMP','LRMP','LRHP','MRHP'),
+                                            'Same'=c('LRLP','MRMP','HRHP')),
+                               levels = c('Same','Diff'))) %>%
+  mutate(isRandom=(response!=target)&(tolower(distractor)!=response),
+         responseType=1-hit+isRandom)
+```
+
+```{r include=FALSE}
+df.trial <- inner_join(df.trial,
+                       df.trial %>% group_by(uniqueid,blockNum) %>%
+                         dplyr::summarise(uniqueR=length(unique(catRewLevel)),
+                                          uniqueP=length(unique(catPunLevel))) %>% 
+                         mutate(blockType=if_else(uniqueR>1,'PunFixed','RewFixed')) %>% 
+                         ungroup(),by=c('uniqueid','blockNum'))
+```
+
+```{r include=FALSE}
+df.interval <- df.trial %>% 
+  group_by(uniqueid,intervalNum,blockNum,intervalLength,intervalType,catRewLevel,catPunLevel,blockType) %>% 
+  dplyr::summarise(mean_Acc=mean(hit,na.rm=T),
+                   norm_sum_Acc=sum(hit,na.rm=T),
+                   mean_AccRT=mean(AccRT,na.rm=T),
+                   mean_RT=mean(rt,na.rm=T),
+                   mean_Congruence=mean(congruence,na.rm=T),
+                   maxTrialNum = max(trialNum),
+                   maxRT=max(rt)) %>% ungroup() %>%
+  mutate(norm_sum_Acc=norm_sum_Acc/intervalLength*1000,
+         scaledIntervalNum=(intervalNum + 12 * (blockNum - 1))/36-1,
+         blockedIntervalNum=(intervalNum - 6.5)/5.5,
+         scaledMeanCong=scale(mean_Congruence),
+         scaledIntervalDur=(intervalLength/1000-7.5)/1.5,
+         log10_AccRT=log10(mean_AccRT),
+         scale_log10_AccRT=scale(log10(mean_AccRT))) %>%
+  filter(abs(mean_Congruence-0.5)<=0.2,
+         mean_Acc>=0.6)
+
+df.interval.subset <- df.interval %>%
+  dplyr::select(uniqueid,blockNum,intervalNum,scaledIntervalNum,scaledMeanCong,mean_Acc,mean_AccRT,maxTrialNum,scaledIntervalDur,blockedIntervalNum)
+
+df.trial<-inner_join(df.trial,df.interval.subset,
+                               by=c('uniqueid','blockNum','intervalNum')) %>%
+  filter(rt<=3000)
+
+df.trial.combined <- inner_join(df.trial,df.question,by=c('uniqueid'))
+df.interval.combined <- inner_join(df.interval,df.question,by=c('uniqueid'))
+```
+
+
+```{r}
+df.trial.hddm <- df.trial %>% filter(isRandom==FALSE) %>%
+  mutate(rt=rt/1000,
+         response=hit,
+         subj_idx=as.numeric(factor(uniqueid)),
+         catCong=type) %>% 
+  dplyr::select(subj_idx,rt,response,catRewLevel,catPunLevel,catCong)
+
+write.csv(df.trial.hddm,'data/Study2/hddm_data_ae_only.csv',col.names = T,row.names = F)
+```
+
+## Interval-level model
+
+```{r include=FALSE}
+contrasts(df.interval.combined$catPunLevel)<-contr.sdif(3)
+contrasts(df.interval.combined$catRewLevel)<-contr.sdif(3)
+contrasts(df.interval.combined$gender)<-contr.sum
+```
+
+
+```{r}
+model.rr <- lmerTest::lmer(norm_sum_Acc ~ scaledAge + gender + catRewLevel * catPunLevel +
+                             scaledMeanCong + scaledIntervalNum + 
+                             (1 + catRewLevel * catPunLevel + scaledMeanCong + scaledIntervalNum|uniqueid),
+                           df.interval.combined)
+
+print (summary(model.rr)) 
+sv1_max <- svd(getME(model.rr, "Tlist")[[1]]) 
+sv1_max$d
+round(sv1_max$d^2/sum(sv1_max$d^2)*100, 1)
+anova(model.rr)
+```
+
+```{r}
+tab_model(model.rr,show.icc = F,show.re.var = F,show.se=T,digits = 3,show.ci=F,
+          pred.labels = c("Intercept","Age","Female - Male",
+                          "Medium Reward - Low Reward",
+                          "High Reward - Medium Reward",
+                          "Medium Penalty - Low Penalty",
+                          "High Penalty - Medium Penalty",
+                          "Average Congruence",
+                          "Interval Number",
+                          "Reward X Penalty1",
+                          "Reward X Penalty2",
+                          "Reward X Penalty3",
+                          "Reward X Penalty4"),
+          dv.labels = c("Correct Responses Per Second"),
+          string.se = "S.E.",
+          string.p = "P-Value")
+```
+
+## Trial-level model
+
+```{r}
+df.trial.combined$scaledTrialNum <- scale(df.trial$trialNum)
+contrasts(df.trial.combined$catPunLevel)<-contr.sdif(3)
+contrasts(df.trial.combined$catRewLevel)<-contr.sdif(3)
+contrasts(df.trial.combined$type)<-contr.sum
+contrasts(df.trial.combined$gender)<-contr.sum
+```
+
+```{r}
+model.acc.trial<-glmer(hit ~ scaledAge + gender + catRewLevel + catPunLevel + type + scaledTrialNum + scaledIntervalNum +
+                         (1 + catRewLevel + catPunLevel + type + scaledTrialNum + scaledIntervalNum|uniqueid),df.trial.combined,family = binomial)
+
+tab_model(model.acc.trial,show.re.var = F, digits = 4,show.se = TRUE)
+
+print (summary(model.acc.trial)) 
+
+sv1_max <- svd(getME(model.acc.trial, "Tlist")[[1]]) 
+sv1_max$d
+round(sv1_max$d^2/sum(sv1_max$d^2)*100, 1)
+
+car::Anova(model.acc.trial)
+```
+
+
+```{r}
+model.accrt.trial<-lmerTest::lmer(log10(AccRT) ~ scaledAge + gender + catRewLevel + catPunLevel + type + scaledTrialNum + scaledIntervalNum +
+                         (1 + catRewLevel + catPunLevel + type + scaledTrialNum + scaledIntervalNum|uniqueid),df.trial.combined)
+summary(model.accrt.trial)
+sv1_max <- svd(getME(model.accrt.trial, "Tlist")[[1]]) 
+sv1_max$d
+round(sv1_max$d^2/sum(sv1_max$d^2)*100, 1)
+anova(model.accrt.trial)
+```
+
+
+```{r}
+tab_model(model.accrt.trial,model.acc.trial,show.icc = F,show.re.var = F,show.se=T,digits = 3,show.ci=F,
+          pred.labels = c("Intercept","Age","Female - Male",
+                          "Medium Reward - Low Reward",
+                          "High Reward - Medium Reward",
+                          "Medium Penalty - Low Penalty",
+                          "High Penalty - Medium Penalty",
+                          "Trial Congruence (Cong-Incong)",
+                          "Trial Number"),
+          dv.labels = c("Log-transformed RT","Accuracy"),
+          string.se = "S.E.",
+          digits.p = 4,
+          string.p = "P-Value")
+```
+
+
+## Plot figures
+
+
+```{r}
+dfwc.p.rr<-summarySEwithin(df.interval.combined, measurevar="norm_sum_Acc", withinvars=c("catPunLevel"),idvar="uniqueid",na.rm=TRUE, conf.interval=.95)
+
+pp.rr <- ggplot() + 
+  geom_line(data=dfwc.p.rr,aes(x=catPunLevel,y=norm_sum_Acc,group=1)) +
+  geom_errorbar(data=dfwc.p.rr,position = position_dodge(.6),width=0,size=1,aes(x=catPunLevel,ymin=norm_sum_Acc-ci, ymax=norm_sum_Acc +ci,color=catPunLevel)) + geom_point(data=dfwc.p.rr,aes(x=catPunLevel,y=norm_sum_Acc,color=catPunLevel),stat='identity',size=3) + 
+  gg.rr + scale_color_manual(name = "",values=c("#D96000","#B34F00","#8C3E00"),guide=FALSE) + ylab("<b>Correct Responses Per Second</b>") + xlab("") + coord_cartesian(ylim = c(1,1.15)) + scale_y_continuous(breaks = c(1,1.1)) + scale_x_discrete(labels=c("High Penalty" = "High","Medium Penalty" = "Medium","Low Penalty" = "Low"))
+
+
+dfwc.p.accrt<-summarySEwithin(df.trial.combined, measurevar="AccRT", withinvars=c("catPunLevel"),idvar="uniqueid",na.rm=TRUE, conf.interval=.95)
+
+pp.accrt <- ggplot() + geom_line(data=dfwc.p.accrt,aes(x=catPunLevel,y=AccRT,group=1)) +
+  geom_errorbar(data=dfwc.p.accrt,position = position_dodge(.6),width=0,size=1,aes(x=catPunLevel,ymin=AccRT-ci, ymax=AccRT +ci,color=catPunLevel)) +  geom_point(data=dfwc.p.accrt,aes(x=catPunLevel,y=AccRT,color=catPunLevel),stat='identity',size=2) + gg.side +
+  scale_color_manual(name = "",values=c("#D96000","#B34F00","#8C3E00"),guide=FALSE) + ylab("<b>Reaction Time(s)</b><br>(Correct Responses Only)") + xlab("") +coord_cartesian(ylim = c(0.8,0.9)) + 
+  scale_y_continuous(breaks = c(0.8,0.9)) + scale_x_discrete(labels=c("High Penalty" = "High","Medium Penalty" = "Medium","Low Penalty" = "Low"))
+
+dfwc.p.acc<-summarySEwithin(df.trial.combined, measurevar="hit", withinvars=c("catPunLevel"),idvar="uniqueid",na.rm=TRUE, conf.interval=.95)
+
+pp.acc <- ggplot() + geom_line(data=dfwc.p.acc,aes(x=catPunLevel,y=hit,group=1)) +
+  geom_errorbar(data=dfwc.p.acc,position = position_dodge(.6),width=0,size=1,aes(x=catPunLevel,ymin=hit - ci, ymax=hit + ci,color=catPunLevel)) + geom_point(data=dfwc.p.acc,aes(x=catPunLevel,y=hit,color=catPunLevel),stat='identity',size=2)+gg.side +
+  scale_color_manual(name = "",values=c("#D96000","#B34F00","#8C3E00"),guide=FALSE) + ylab('<b>Accuracy</b><br>') + xlab("") +coord_cartesian(ylim = c(0.95,0.98)) + scale_y_continuous(breaks = c(0.95,0.98)) + scale_x_discrete(labels=c("High Penalty" = "High","Medium Penalty" = "Medium","Low Penalty" = "Low"))
+
+dfwc.r.rr<-summarySEwithin(df.interval.combined, measurevar="norm_sum_Acc", withinvars=c("catRewLevel"),idvar="uniqueid",na.rm=TRUE, conf.interval=.95)
+
+pr.rr <- ggplot() + geom_line(data=dfwc.r.rr,aes(x=catRewLevel,y=norm_sum_Acc,group=1)) +
+  geom_errorbar(data=dfwc.r.rr,position = position_dodge(.6),width=0,size=1,aes(x=catRewLevel,ymin=norm_sum_Acc-ci, ymax=norm_sum_Acc +ci,color=catRewLevel)) + geom_point(data=dfwc.r.rr,aes(x=catRewLevel,y=norm_sum_Acc,color=catRewLevel),stat='identity',size=3) + gg.rr + scale_color_manual(name = "",values=c("#00D9D9","#00A3A3","#005E5E"),guide=FALSE) + ylab("<b>Correct Responses Per Second</b>") + xlab("") + coord_cartesian(ylim = c(1,1.15)) + 
+  scale_y_continuous(breaks = c(1,1.1)) + scale_x_discrete(labels=c("High Reward" = "High","Medium Reward" = "Medium","Low Reward" = "Low"))
+
+dfwc.r.accrt<-summarySEwithin(df.trial.combined, measurevar="AccRT", withinvars=c("catRewLevel"),idvar="uniqueid",na.rm=TRUE, conf.interval=.95)
+
+pr.accrt <- ggplot() + geom_line(data=dfwc.r.accrt,aes(x=catRewLevel,y=AccRT,group=1)) +
+  geom_errorbar(data=dfwc.r.accrt,position = position_dodge(.6),width=0,size=1,aes(x=catRewLevel,ymin=AccRT-ci, ymax=AccRT +ci,color=catRewLevel)) +  geom_point(data=dfwc.r.accrt,aes(x=catRewLevel,y=AccRT,color=catRewLevel),stat='identity',size=2) + gg.side +
+  scale_color_manual(name = "",values=c("#00D9D9","#00A3A3","#005E5E"),guide=FALSE) + ylab("<b>Reaction Time(s)</b><br>(Correct Responses Only)") + xlab("") +coord_cartesian(ylim = c(0.8,0.9)) + 
+  scale_y_continuous(breaks = c(0.8,0.85,0.9)) + scale_x_discrete(labels=c("High Reward" = "High","Medium Reward" = "Medium","Low Reward" = "Low"))
+
+dfwc.r.acc<-summarySEwithin(df.trial.combined, measurevar="hit", withinvars=c("catRewLevel"),idvar="uniqueid",na.rm=TRUE, conf.interval=.95)
+
+pr.acc <- ggplot() + geom_line(data=dfwc.r.acc,aes(x=catRewLevel,y=hit,group=1)) +
+  geom_errorbar(data=dfwc.r.acc,position = position_dodge(.6),width=0,size=1,aes(x=catRewLevel,ymin=hit - ci, ymax=hit + ci,color=catRewLevel)) + geom_point(data=dfwc.r.acc,aes(x=catRewLevel,y=hit,color=catRewLevel),stat='identity',size=2) + gg.side +
+  scale_color_manual(name = "",values=c("#00D9D9","#00A3A3","#005E5E"),guide=FALSE) + ylab('<b>Accuracy</b><br>') + xlab("") + coord_cartesian(ylim = c(0.95,0.98)) + 
+  scale_y_continuous(breaks = c(0.95,0.98)) + scale_x_discrete(labels=c("High Reward" = "High","Medium Reward" = "Medium","Low Reward" = "Low"))
+
+```
+
+
+```{r}
+lay <- rbind(c(1,2,NA,4,5),
+             c(1,3,NA,4,6))
+p<-arrangeGrob(grobs = list(pr.rr,pr.accrt,pr.acc,pp.rr,pp.accrt,pp.acc), layout_matrix = lay,widths=unit(c(8,8,1,8,8), c("cm", "cm")),heights=unit(c(6,6),c('cm','cm')))
+
+ggsave(file="Figures/Study2_Behavior.eps", p,units = 'cm',height = 20,width = 40) #saves g
+
+```

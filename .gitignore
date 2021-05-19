@@ -1,2 +1,4 @@
-output
-data
+output/
+data/
+*.html
+RR_model/dm/
