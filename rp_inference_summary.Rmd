@@ -1,0 +1,73 @@
+---
+title: "RRO inverse reference"
+output: html_notebook
+---
+
+
+```{r}
+library(dplyr)
+library(ggplot2)
+library(purrr)
+library(tidyr)
+library(ggpubr)
+library(gridExtra)
+```
+
+
+
+```{r}
+df<-read.csv('RP.csv')
+
+df$logWeights<-log10(df$Weight)
+
+df<-inner_join(df,df%>%group_by(subj,Valence)%>%dplyr::summarise(subjMean=mean(logWeights),
+                                                                 subjMeanRaw=mean(Weight)),by=c('subj','Valence'))
+
+model<-aov(logWeights~Valence*Stake_primary+Error(subj),data=df)
+
+print(summary(model))
+```
+
+
+
+```{r}
+df.sum <- df %>% group_by(subj,Valence,Stake_primary) %>% dplyr::summarise(subjMeanByStake=mean(logWeights)) %>% ungroup() %>%
+  spread(Stake_primary,subjMeanByStake) %>% mutate(difference=(H-L))
+
+sum_df<-df.sum %>% 
+  mutate(Valence=factor(Valence,levels=c('R','P'))) %>%
+  group_by(Valence) %>%
+  dplyr::summarise(Mean=mean(difference),SE=sd(difference)/sqrt(length(difference)))
+```
+
+
+```{r}
+p3<-ggplot(sum_df, aes(x=forcats::fct_rev(Valence), y=Mean,fill= forcats::fct_rev(Valence))) + 
+  geom_bar(stat="identity", position=position_dodge(),width = 0.4) +
+  geom_errorbar(aes(ymin=Mean-SE, ymax=Mean+SE), width=.1, size=2, position=position_dodge(.4)) + 
+  ylab('log(High/Low)') + xlab('') +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),plot.margin=grid::unit(c(5,5,5,5), "mm"),
+        panel.background = element_blank(), axis.line = element_line(colour = "black"),legend.position ='none',
+        text = element_text(size=25)) + 
+  scale_x_discrete(labels=c('Penalty','Reward')) +  scale_y_continuous(expand = c(0,0),position = "right") + coord_flip(ylim=c(0,0.6))
+
+ggsave(file="rrweights_rraw4.eps",p3,width = 20,height = 10,units ='cm')
+```
+
+
+
+
+```{r}
+df.sum.group <- df %>% group_by(Valence,Stake_primary) %>% dplyr::summarise(Mean=10^mean(log10(Weight)),SD=10^sd(log10(Weight)))
+```
+
+
+```{r}
+a<-df.sum %>% filter(Valence=='R')
+b<-df.sum %>% filter(Valence=='P')
+
+
+t.test(b$difference)
+t.test(a$difference)
+```
+

@@ -155,4 +155,4 @@ df_RP = pd.DataFrame({'subj':df_long['subj'],
                            'Stake_primary':Stake_primary,
                            'Stake_secondary':Stake_secondary})
 
-df_RP.to_csv('RP.csv',index=False)
+df_RP.to_csv('../RP.csv',index=False)
