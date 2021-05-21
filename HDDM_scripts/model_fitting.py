@@ -20,7 +20,7 @@ Command line inputs:
 Output files will be stored in ../output/
 
 Author:
-    Xiamin Leng, May 20201, xiamin_leng@brown.edu
+    Xiamin Leng, May 2021, xiamin_leng@brown.edu
 """
 
 
