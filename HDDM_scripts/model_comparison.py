@@ -14,10 +14,54 @@ dic_dict = {}
 bdic_dict = {}
 
 
+# Transform into data frame and store in dic.csv
+vformula = []
+aformula = []
+tformula = []
+zformula = []
+nsamples = []
+dic = []
+bdic = []
+ 
+
 # Load and concatenate models and extract DIC information
 for x in os.listdir(path):
+
+
+    models = [];
+
     modelname = x.split('_')[0]
-    models = []
+    nsamples.append(x.split('_')[-1])
+
+    modelformula = x.split('_')[0]
+    if len(modelformula.split('z')) == 2:
+
+        zformula.append(modelformula.split('z')[-1])
+        modelformula = modelformula.split('z')[0]
+    else:
+        zformula.append(None)
+    
+    if len(modelformula.split('t')) == 2:
+
+        tformula.append(modelformula.split('t')[-1])
+        modelformula = modelformula.split('t')[0]
+    else:
+        tformula.append(None)
+
+    if len(modelformula.split('a')) == 2:
+
+        aformula.append(modelformula.split('a')[-1])
+        modelformula = modelformula.split('a')[0]
+    else:
+        aformula.append(None)
+
+    if len(modelformula.split('v')) == 2:
+
+        vformula.append(modelformula.split('v')[-1])
+        modelformula = modelformula.split('v')[0]
+    else:
+        vformula.append(None)
+
     for i in range(5):
         m = hddm.load(path + x + '/' + x + '_' + str(i))
         models.append(m)
@@ -29,11 +73,16 @@ for x in os.listdir(path):
     dic_dict[modelname] = m_comb.dic
     bdic_dict[modelname] = m_comb.dic_info['pD'] + m_comb.dic
 
+    dic.append(m_comb.dic)
+    bdic.append(m_comb.dic_info['pD'] + m_comb.dic)
+
 
 # Transform into data frame and store in dic.csv
+"""
 vformula = []
 aformula = []
 tformula = []
+zformula = []
 dic = []
 bdic = []
 
@@ -53,11 +102,14 @@ for tp in formulas:
     tformula.append('+'.join(tp))
     dic.append(dic_dict['vRPCaRPC'+'t'+tp])
     bdic.append(bdic_dict['vRPCaRPC'+'t'+tp])
+"""
 
 
 df = pd.DataFrame({'v':vformula,
                    'a':aformula,
                    't':tformula,
+                   'z':zformula,
+                   'nsamples':nsamples,
                    'DIC':dic,
                    'BDIC':bdic})
 
