@@ -164,7 +164,7 @@ contrasts(df.trial.combined.acc$catCong)<-contr.sum
 
 
 ```{r message=TRUE, warning=TRUE}
-model.accrt.t<-lmerTest::lmer(log10(AccRT/1000)~scaledAge + gender + catPunLevel * catRewLevel * catCong + scaledTrialNum + scaledGlobalIntervalNum + (1 + catPunLevel * catRewLevel * catCong + scaledTrialNum + scaledGlobalIntervalNum|mTurkID),data=df.trial.combined.acc)
+model.accrt.t<-lmerTest::lmer(log10(AccRT/1000)~scaledAge + gender + catPunLevel * catRewLevel * catCong + scaledTrialNum + scaledGlobalIntervalNum + (1 + catPunLevel * catRewLevel * catCong + scaledTrialNum + scaledGlobalIntervalNum|subj_idx),data=df.trial.combined.acc)
 summary(model.accrt.t)
 sv1_max <- svd(getME(model.accrt.t,"Tlist")[[1]])
 sv1_max$d
@@ -174,7 +174,7 @@ anova(model.accrt.t)
 
 
 ```{r}
-model.acc.t<-glmer(Acc ~ scaledAge + gender + catPunLevel * catRewLevel * catCong + scaledTrialNum + scaledGlobalIntervalNum + (1 + catPunLevel * catRewLevel * catCong + scaledTrialNum + scaledGlobalIntervalNum|mTurkID),family=binomial,data=df.trial.combined)
+model.acc.t<-glmer(Acc ~ scaledAge + gender + catPunLevel * catRewLevel * catCong + scaledTrialNum + scaledGlobalIntervalNum + (1 + catPunLevel * catRewLevel * catCong + scaledTrialNum + scaledGlobalIntervalNum|subj_idx),family=binomial,data=df.trial.combined)
 summary(model.acc.t)
 tab_model(model.acc.t,show.icc = F,show.re.var = F)
 sv1_max <- svd(getME(model.acc.t,"Tlist")[[1]])
