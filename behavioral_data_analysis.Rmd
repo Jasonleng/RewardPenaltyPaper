@@ -222,7 +222,7 @@ df.trial.plot <- df.trial.combined %>% mutate(catRewLevel=relevel(catRewLevel,re
 
 
 ```{r}
-dfwc.p.acc<-summarySEwithin(df.trial.plot, measurevar="Acc", withinvars=c("catPunLevel"),idvar="mTurkID",na.rm=TRUE, conf.interval=.95)
+dfwc.p.acc<-summarySEwithin(df.trial.plot, measurevar="Acc", withinvars=c("catPunLevel"),idvar="subj_idx",na.rm=TRUE, conf.interval=.95)
 
 pp.acc <- ggplot() + 
   geom_errorbar(data=dfwc.p.acc,position = position_dodge(.6),width=0,size=1,aes(x=catPunLevel,ymin=Acc - ci, ymax=Acc + ci,color=catPunLevel)) +
@@ -231,7 +231,7 @@ pp.acc <- ggplot() +
   coord_cartesian(ylim = c(0.93,0.98)) + 
   scale_y_continuous(breaks = c(0.94,0.96,0.98)) + scale_x_discrete(labels=c("High Penalty" = "High", "Low Penalty" = "Low"))
 
-dfwc.p.accrt<-summarySEwithin(df.trial.plot, measurevar="AccRT", withinvars=c("catPunLevel"),idvar="mTurkID",na.rm=TRUE, conf.interval=.95)
+dfwc.p.accrt<-summarySEwithin(df.trial.plot, measurevar="AccRT", withinvars=c("catPunLevel"),idvar="subj_idx",na.rm=TRUE, conf.interval=.95)
 
 pp.accrt <- ggplot() + 
   geom_errorbar(data=dfwc.p.accrt,position = position_dodge(.6),width=0,size=1,aes(x=catPunLevel,ymin=AccRT-ci, ymax=AccRT +ci,color=catPunLevel)) +
@@ -240,7 +240,7 @@ pp.accrt <- ggplot() +
   ylab("<b>Reaction Time(s)</b><br>(Correct Responses Only)") + xlab("<b>Penalty</b>") +coord_cartesian(ylim = c(0.75,0.85)) + 
   scale_y_continuous(breaks = c(0.75,0.8,0.85)) + scale_x_discrete(labels=c("High Penalty" = "High", "Low Penalty" = "Low"))
 
-dfwc.p.rr<-summarySEwithin(df.plot, measurevar="norm_sum_Acc", withinvars=c("catPunLevel"),idvar="mTurkID",na.rm=TRUE, conf.interval=.95)
+dfwc.p.rr<-summarySEwithin(df.plot, measurevar="norm_sum_Acc", withinvars=c("catPunLevel"),idvar="subj_idx",na.rm=TRUE, conf.interval=.95)
 
 pp.rr <- ggplot() + 
   geom_errorbar(data=dfwc.p.rr,position = position_dodge(.6),width=0,size=1,aes(x=catPunLevel,ymin=norm_sum_Acc-ci, ymax=norm_sum_Acc +ci,color=catPunLevel)) + 
@@ -249,7 +249,7 @@ pp.rr <- ggplot() +
   coord_cartesian(ylim = c(1.05,1.2)) + 
   scale_y_continuous(breaks = c(1.1,1.2)) + scale_x_discrete(labels=c("High Penalty" = "High", "Low Penalty" = "Low"))
 
-dfwc.r.acc<-summarySEwithin(df.trial.plot, measurevar="Acc", withinvars=c("catRewLevel"),idvar="mTurkID",na.rm=TRUE, conf.interval=.95)
+dfwc.r.acc<-summarySEwithin(df.trial.plot, measurevar="Acc", withinvars=c("catRewLevel"),idvar="subj_idx",na.rm=TRUE, conf.interval=.95)
 
 pr.acc <- ggplot() +
   geom_errorbar(data=dfwc.r.acc,position = position_dodge(.6),width=0,size=1,aes(x=catRewLevel,ymin=Acc-ci, ymax=Acc +ci,color=catRewLevel)) + 
@@ -258,7 +258,7 @@ pr.acc <- ggplot() +
   coord_cartesian(ylim = c(0.93,0.98)) + 
   scale_y_continuous(breaks = c(0.94,0.96,0.98)) + scale_x_discrete(labels=c("High Reward" = "High", "Low Reward" = "Low"))
  
-dfwc.r.accrt<-summarySEwithin(df.trial.plot, measurevar="AccRT", withinvars=c("catRewLevel"),idvar="mTurkID",na.rm=TRUE, conf.interval=.95)
+dfwc.r.accrt<-summarySEwithin(df.trial.plot, measurevar="AccRT", withinvars=c("catRewLevel"),idvar="subj_idx",na.rm=TRUE, conf.interval=.95)
 
 pr.accrt <- ggplot() + 
   geom_errorbar(data=dfwc.r.accrt,position = position_dodge(.6),width=0,size=1,aes(x=catRewLevel,ymin=AccRT-ci, ymax=AccRT +ci,color=catRewLevel)) +
@@ -267,7 +267,7 @@ pr.accrt <- ggplot() +
   ylab("<b>Reaction Time(s)</b><br>(Correct Responses Only)") + xlab("<b>Reward</b>") +coord_cartesian(ylim = c(0.75,0.85)) + 
   scale_y_continuous(breaks = c(0.75,0.8,0.85)) + scale_x_discrete(labels=c("High Reward" = "High", "Low Reward" = "Low")) + gg.side
  
-dfwc.r.rr<-summarySEwithin(df.plot, measurevar="norm_sum_Acc", withinvars=c("catRewLevel"),idvar="mTurkID",na.rm=TRUE, conf.interval=.95)
+dfwc.r.rr<-summarySEwithin(df.plot, measurevar="norm_sum_Acc", withinvars=c("catRewLevel"),idvar="subj_idx",na.rm=TRUE, conf.interval=.95)
 
 pr.rr <- ggplot() +
   geom_errorbar(data=dfwc.r.rr,position = position_dodge(.6),width=0,size=1,aes(x=catRewLevel,ymin=norm_sum_Acc-ci, ymax=norm_sum_Acc +ci,color=catRewLevel)) + 
@@ -295,7 +295,7 @@ ggsave(filename = 'Figures/Figure2.pdf',a,units = 'cm',width = 20,height = 10)
 ```{r}
 df.trial.plot$catCong <- factor(df.trial.plot$catCong,labels=c('Congruent','Incongruent'))
 
-dfwc.p.acc<-summarySEwithin(df.trial.plot, measurevar="Acc", withinvars=c("catPunLevel","catCong"),idvar="mTurkID",na.rm=TRUE, conf.interval=.95)
+dfwc.p.acc<-summarySEwithin(df.trial.plot, measurevar="Acc", withinvars=c("catPunLevel","catCong"),idvar="subj_idx",na.rm=TRUE, conf.interval=.95)
 
 pp.acc <- ggplot() + geom_line(data=dfwc.p.acc,position = position_dodge(.6),aes(x=catPunLevel,y=Acc,linetype=catCong,group=catCong)) +
   geom_errorbar(data=dfwc.p.acc,position = position_dodge(.6),width=0,size=1,aes(x=catPunLevel,ymin=Acc - ci, ymax=Acc + ci,color=catPunLevel,group=catCong)) +
@@ -304,7 +304,7 @@ pp.acc <- ggplot() + geom_line(data=dfwc.p.acc,position = position_dodge(.6),aes
   coord_cartesian(ylim = c(0.935,0.98)) + scale_linetype_discrete(guide='none') + scale_shape_discrete(guide='none') +
   scale_y_continuous(breaks = c(0.94,0.96,0.98)) + scale_x_discrete(labels=c("High Penalty" = "High", "Low Penalty" = "Low"))
 
-dfwc.p.accrt<-summarySEwithin(df.trial.plot, measurevar="AccRT", withinvars=c("catPunLevel","catCong"),idvar="mTurkID",na.rm=TRUE, conf.interval=.95)
+dfwc.p.accrt<-summarySEwithin(df.trial.plot, measurevar="AccRT", withinvars=c("catPunLevel","catCong"),idvar="subj_idx",na.rm=TRUE, conf.interval=.95)
 
 pp.accrt <- ggplot() + geom_line(data=dfwc.p.accrt,position = position_dodge(.6),aes(x=catPunLevel,y=AccRT,linetype=catCong,group=catCong)) +
   geom_errorbar(data=dfwc.p.accrt,position = position_dodge(.6),width=0,size=1,aes(x=catPunLevel,ymin=AccRT-ci, ymax=AccRT +ci,color=catPunLevel,group=catCong)) +
@@ -313,9 +313,7 @@ pp.accrt <- ggplot() + geom_line(data=dfwc.p.accrt,position = position_dodge(.6)
   ylab("<b>Reaction Time(s)</b><br>(Correct Responses Only)") + xlab("Penalty") +coord_cartesian(ylim = c(0.7,0.9)) + 
   scale_y_continuous(breaks = c(0.7,0.8,0.9)) + scale_x_discrete(labels=c("High Penalty" = "High", "Low Penalty" = "Low"))
 
-dfwc.p.rr<-summarySEwithin(df.plot, measurevar="norm_sum_Acc", withinvars=c("catPunLevel"),idvar="mTurkID",na.rm=TRUE, conf.interval=.95)
-
-dfwc.r.acc<-summarySEwithin(df.trial.plot, measurevar="Acc", withinvars=c("catRewLevel","catCong"),idvar="mTurkID",na.rm=TRUE, conf.interval=.95)
+dfwc.r.acc<-summarySEwithin(df.trial.plot, measurevar="Acc", withinvars=c("catRewLevel","catCong"),idvar="subj_idx",na.rm=TRUE, conf.interval=.95)
 
 pr.acc <- ggplot() + geom_line(data=dfwc.r.acc,position = position_dodge(.6),aes(x=catRewLevel,y=Acc,linetype=catCong,group=catCong)) +
   geom_errorbar(data=dfwc.r.acc,position = position_dodge(.6),width=0,size=1,aes(x=catRewLevel,ymin=Acc-ci, ymax=Acc +ci,color=catRewLevel,group=catCong)) + 
@@ -324,7 +322,7 @@ pr.acc <- ggplot() + geom_line(data=dfwc.r.acc,position = position_dodge(.6),aes
   coord_cartesian(ylim = c(0.935,0.98)) + scale_linetype_discrete(guide='none') + scale_shape_discrete(guide='none') +
   scale_y_continuous(breaks = c(0.94,0.96,0.98)) + scale_x_discrete(labels=c("High Reward" = "High", "Low Reward" = "Low"))
  
-dfwc.r.accrt<-summarySEwithin(df.trial.plot, measurevar="AccRT", withinvars=c("catRewLevel","catCong"),idvar="mTurkID",na.rm=TRUE, conf.interval=.95)
+dfwc.r.accrt<-summarySEwithin(df.trial.plot, measurevar="AccRT", withinvars=c("catRewLevel","catCong"),idvar="subj_idx",na.rm=TRUE, conf.interval=.95)
 
 pr.accrt <- ggplot() + geom_line(data=dfwc.r.accrt,position = position_dodge(.6),aes(x=catRewLevel,y=AccRT,linetype=catCong,group=catCong)) +
   geom_errorbar(data=dfwc.r.accrt,position = position_dodge(.6),width=0,size=1,aes(x=catRewLevel,ymin=AccRT-ci, ymax=AccRT +ci,color=catRewLevel,group=catCong)) +
